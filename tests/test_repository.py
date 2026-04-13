@@ -79,3 +79,25 @@ def test_get_by_pmids(tmp_db):
     repo.insert_batch(articles)
     result = repo.get_by_pmids([111, 333])
     assert len(result) == 2
+
+
+def test_insert_batch_with_search_id(tmp_db):
+    db = Database(tmp_db)
+    db.init_schema()
+    search_id = db.create_search("test keyword", "2026-01-01")
+    repo = ArticleRepository(db)
+
+    articles = [
+        Article(title="S1 Article 1", pmid=111),
+        Article(title="S1 Article 2", pmid=222),
+    ]
+    count = repo.insert_batch(articles, search_id=search_id)
+    assert count == 2
+
+    result = repo.get_all_articles(search_id=search_id)
+    assert len(result) == 2
+    assert result[0].title == "S1 Article 1"
+    assert result[1].pmid == 222
+
+    empty = repo.get_all_articles(search_id=999)
+    assert empty == []

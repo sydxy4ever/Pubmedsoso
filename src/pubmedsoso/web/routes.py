@@ -35,7 +35,6 @@ router = APIRouter()
 
 _tasks: dict[str, TaskStatus] = {}
 _task_articles: dict[str, list[Article]] = {}
-_task_dbs: dict[str, Database] = {}
 _task_timestamps: dict[str, datetime] = {}
 _task_keywords: dict[str, str] = {}
 _state_lock = threading.Lock()
@@ -84,17 +83,22 @@ def _run_search_count(task_id: str, keyword: str, config: Config) -> None:
         _update_task(task_id, status="failed", message=str(e))
 
 
+def _get_db(config: Config) -> Database:
+    db_path = config.db_dir / "pubmedsoso.db"
+    db = Database(db_path)
+    db.init_schema()
+    return db
+
+
 def _run_search_full(task_id: str, keyword: str, config: Config) -> None:
     try:
         _update_task(task_id, status="running", message="Searching PubMed...")
 
-        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-        db_path = config.db_dir / f"pubmed_{timestamp}.db"
-        db = Database(db_path)
-        db.init_schema()
-        db.set_meta("keyword", keyword)
+        db = _get_db(config)
         with _state_lock:
             _task_dbs[task_id] = db
+
+        search_id = db.create_search(keyword, datetime.now().isoformat())
         repo = ArticleRepository(db)
 
         searcher = PubMedSearcher(config)
@@ -113,7 +117,7 @@ def _run_search_full(task_id: str, keyword: str, config: Config) -> None:
             return
 
         _update_task(task_id, message="Saving to database...")
-        repo.insert_batch(result.articles)
+        repo.insert_batch(result.articles, search_id=search_id)
         _update_task(task_id, progress=0.5)
 
         _update_task(task_id, message="Ranking journals...")
@@ -197,23 +201,17 @@ async def get_task_status(task_id: str) -> TaskStatus:
 @router.get("/articles")
 async def get_articles(
     task_id: Optional[str] = Query(None),
+    search_id: Optional[int] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100000),
 ) -> dict:
     if task_id and task_id in _task_articles:
         articles = _task_articles[task_id]
-    elif task_id and task_id in _task_dbs:
-        repo = ArticleRepository(_task_dbs[task_id])
-        articles = repo.get_all_articles()
     else:
         config = Config.from_env()
-        db_files = list(config.db_dir.glob("pubmed_*.db"))
-        if not db_files:
-            return {"articles": [], "total": 0, "page": page, "page_size": page_size}
-        latest_db = max(db_files, key=lambda p: p.stat().st_mtime)
-        db = Database(latest_db)
+        db = _get_db(config)
         repo = ArticleRepository(db)
-        articles = repo.get_all_articles()
+        articles = repo.get_all_articles(search_id=search_id)
 
     start = (page - 1) * page_size
     end = start + page_size
@@ -300,23 +298,17 @@ async def export_results(
 @router.get("/history")
 async def get_history() -> list[HistoryItem]:
     config = Config.from_env()
-    db_files = list(config.db_dir.glob("pubmed_*.db"))
+    db = _get_db(config)
+    repo = ArticleRepository(db)
 
     history: list[HistoryItem] = []
-    for db_file in sorted(db_files, reverse=True):
-        timestamp = db_file.stem.replace("pubmed_", "")
-        db = Database(db_file)
-        repo = ArticleRepository(db)
-        articles = repo.get_all_articles()
-
-        created_at = datetime.fromtimestamp(db_file.stat().st_mtime).isoformat()
-        keyword = db.get_meta("keyword") or timestamp
-
+    for search in db.get_searches():
+        articles = repo.get_all_articles(search_id=search["id"])
         history.append(
             HistoryItem(
-                task_id=keyword,
+                task_id=search["keyword"],
                 article_count=len(articles),
-                created_at=created_at,
+                created_at=search["created_at"],
             )
         )
 

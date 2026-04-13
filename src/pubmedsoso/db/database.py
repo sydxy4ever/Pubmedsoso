@@ -5,8 +5,15 @@ from pathlib import Path
 
 
 _SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS searches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    keyword TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT ''
+);
+
 CREATE TABLE IF NOT EXISTS articles (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    search_id INTEGER NOT NULL DEFAULT 0,
     title TEXT NOT NULL DEFAULT '',
     authors TEXT NOT NULL DEFAULT '',
     journal TEXT NOT NULL DEFAULT '',
@@ -37,6 +44,7 @@ _MIGRATE_SQL = [
     "ALTER TABLE articles ADD COLUMN jcr_quartile TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE articles ADD COLUMN cas_quartile TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE articles ADD COLUMN pub_year TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE articles ADD COLUMN search_id INTEGER NOT NULL DEFAULT 0",
 ]
 
 
@@ -89,5 +97,42 @@ class Database:
             return row["value"] if row else ""
         except sqlite3.OperationalError:
             return ""
+        finally:
+            conn.close()
+
+    def create_search(self, keyword: str, created_at: str) -> int:
+        conn = self.get_connection()
+        try:
+            cursor = conn.execute(
+                "INSERT INTO searches (keyword, created_at) VALUES (?, ?)",
+                (keyword, created_at),
+            )
+            conn.commit()
+            return cursor.lastrowid
+        except sqlite3.OperationalError:
+            conn.executescript("""
+                CREATE TABLE IF NOT EXISTS searches (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    keyword TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL DEFAULT ''
+                );
+            """)
+            conn.commit()
+            cursor = conn.execute(
+                "INSERT INTO searches (keyword, created_at) VALUES (?, ?)",
+                (keyword, created_at),
+            )
+            conn.commit()
+            return cursor.lastrowid
+        finally:
+            conn.close()
+
+    def get_searches(self) -> list[dict]:
+        conn = self.get_connection()
+        try:
+            cursor = conn.execute("SELECT id, keyword, created_at FROM searches ORDER BY id DESC")
+            return [dict(row) for row in cursor.fetchall()]
+        except sqlite3.OperationalError:
+            return []
         finally:
             conn.close()

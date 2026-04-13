@@ -23,6 +23,13 @@ app = typer.Typer(
 )
 
 
+def _get_db(config: Config) -> Database:
+    db_path = config.db_dir / "pubmedsoso.db"
+    db = Database(db_path)
+    db.init_schema()
+    return db
+
+
 def _version_callback(value: bool) -> None:
     if value:
         typer.echo(f"pubmedsoso {__version__}")
@@ -55,14 +62,14 @@ def search(
     config.ensure_dirs()
 
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-    db_path = config.db_dir / f"pubmed_{timestamp}.db"
+    db_path = config.db_dir / "pubmedsoso.db"
     ext = "xlsx" if format == "xlsx" else "csv"
     export_path = config.export_dir / f"pubmed_{timestamp}.{ext}"
 
     typer.echo(f"Initializing database: {db_path}")
     db = Database(db_path)
     db.init_schema()
-    db.set_meta("keyword", keyword)
+    search_id = db.create_search(keyword, datetime.now().isoformat())
     repo = ArticleRepository(db)
 
     typer.echo(f"Searching for: {keyword}")
@@ -77,7 +84,7 @@ def search(
         return
 
     typer.echo("Saving search results to database...")
-    repo.insert_batch(result.articles)
+    repo.insert_batch(result.articles, search_id=search_id)
 
     typer.echo("Ranking journals...")
     rank_articles(result.articles)
@@ -96,39 +103,45 @@ def search(
 
 @app.command()
 def export(
-    list_tables: bool = typer.Option(False, "--list", "-l", help="List available databases"),
-    task: Optional[str] = typer.Option(None, "--task", "-t", help="Task timestamp to export"),
+    list_tables: bool = typer.Option(False, "--list", "-l", help="List available searches"),
+    search_id: Optional[int] = typer.Option(None, "--search-id", "-s", help="Search ID to export"),
     format: str = typer.Option("xlsx", "-f", "--format", help="Export format: xlsx or csv"),
 ) -> None:
     """Export historical search results."""
     config = Config.from_env()
 
-    if list_tables or task is None:
-        typer.echo("Available databases:")
-        db_files = list(config.db_dir.glob("pubmed_*.db"))
-        if not db_files:
-            typer.echo("  No databases found.")
+    if list_tables or search_id is None:
+        typer.echo("Available searches:")
+        db = _get_db(config)
+        searches = db.get_searches()
+        if not searches:
+            typer.echo("  No searches found.")
             return
-        for db_file in sorted(db_files, reverse=True):
-            timestamp = db_file.stem.replace("pubmed_", "")
-            typer.echo(f"  {timestamp}")
+        for s in searches:
+            typer.echo(f"  [{s['id']}] {s['keyword']} ({s['created_at']})")
         return
 
-    db_path = config.db_dir / f"pubmed_{task}.db"
-    if not db_path.exists():
-        typer.echo(f"Database not found: {db_path}")
-        raise typer.Exit(1)
-
-    db = Database(db_path)
+    db = _get_db(config)
     repo = ArticleRepository(db)
-    articles = repo.get_all_articles()
+    articles = repo.get_all_articles(search_id=search_id)
 
     if not articles:
-        typer.echo("No articles in database.")
+        typer.echo("No articles found for this search.")
         return
 
+    searches = db.get_searches()
+    target = next((s for s in searches if s["id"] == search_id), None)
+    timestamp = (
+        target["created_at"]
+        .replace(":", "")
+        .replace("-", "")
+        .replace("T", "")
+        .replace("+", "")[:14]
+        if target
+        else str(search_id)
+    )
     ext = "xlsx" if format == "xlsx" else "csv"
-    export_path = config.export_dir / f"pubmed_{task}.{ext}"
+    export_path = config.export_dir / f"pubmed_export_{timestamp}.{ext}"
 
     typer.echo(f"Exporting {len(articles)} articles to {export_path}...")
     if format == "xlsx":

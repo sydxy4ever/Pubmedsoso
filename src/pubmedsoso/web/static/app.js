@@ -231,6 +231,7 @@ function renderArticles(articles) {
                 ${escapeHtml(truncate(article.authors, 30))}
             </td>
             <td>${escapeHtml(truncate(article.journal, 20))}</td>
+            <td class="rank-cell">${escapeHtml(article.pub_year)}</td>
             <td class="rank-cell">${escapeHtml(article.impact_factor)}</td>
             <td class="rank-cell">${escapeHtml(article.jcr_quartile)}</td>
             <td class="rank-cell">${escapeHtml(article.cas_quartile)}</td>

@@ -37,7 +37,7 @@ class ArticleRepository:
             save_path=row["save_path"],
         )
 
-    def insert_batch(self, articles: list[Article]) -> int:
+    def insert_batch(self, articles: list[Article], search_id: int = 0) -> int:
         """Insert multiple articles. Returns count of inserted rows."""
         conn = self.db.get_connection()
         try:
@@ -45,11 +45,12 @@ class ArticleRepository:
             for article in articles:
                 conn.execute(
                     """INSERT INTO articles
-                       (title, authors, journal, pub_year, impact_factor, jcr_quartile, cas_quartile,
+                       (search_id, title, authors, journal, pub_year, impact_factor, jcr_quartile, cas_quartile,
                         doi, pmid, pmcid, abstract, keywords, affiliations,
                         free_status, is_review, save_path)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
+                        search_id,
                         article.title,
                         article.authors,
                         article.journal,
@@ -135,11 +136,17 @@ class ArticleRepository:
         finally:
             conn.close()
 
-    def get_all_articles(self) -> list[Article]:
-        """Get all articles."""
+    def get_all_articles(self, search_id: int | None = None) -> list[Article]:
+        """Get all articles, optionally filtered by search_id."""
         conn = self.db.get_connection()
         try:
-            cursor = conn.execute("SELECT * FROM articles ORDER BY id")
+            if search_id is not None:
+                cursor = conn.execute(
+                    "SELECT * FROM articles WHERE search_id = ? ORDER BY id",
+                    (search_id,),
+                )
+            else:
+                cursor = conn.execute("SELECT * FROM articles ORDER BY id")
             return [self._row_to_article(row) for row in cursor.fetchall()]
         finally:
             conn.close()

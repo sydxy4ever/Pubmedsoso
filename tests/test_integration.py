@@ -39,8 +39,9 @@ def test_full_pipeline(tmp_path, fixtures_dir):
     db_path = tmp_path / "test.db"
     db = Database(db_path)
     db.init_schema()
+    search_id = db.create_search("test keyword", "2026-01-01T00:00:00")
     repo = ArticleRepository(db)
-    count = repo.insert_batch(articles)
+    count = repo.insert_batch(articles, search_id=search_id)
     assert count == 3
 
     # Step 3: Verify DB state
