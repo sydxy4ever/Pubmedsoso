@@ -32,9 +32,6 @@ def test_article_with_values():
 def test_search_params_defaults():
     params = SearchParams(keyword="cancer")
     assert params.keyword == "cancer"
-    assert params.page_size == 50
-    assert params.page_num == 10
-    assert params.download_limit == 10
 
 
 def test_search_result_defaults():

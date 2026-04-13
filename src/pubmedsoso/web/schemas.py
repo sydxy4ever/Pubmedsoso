@@ -7,12 +7,10 @@ from pydantic import BaseModel
 
 class SearchRequest(BaseModel):
     keyword: str
-    page_num: int = 10
 
 
-class DownloadRequest(BaseModel):
+class SearchConfirmRequest(BaseModel):
     task_id: str
-    download_num: int = 10
 
 
 class TaskStatus(BaseModel):
@@ -20,7 +18,6 @@ class TaskStatus(BaseModel):
     status: str
     progress: float = 0.0
     result_count: int = 0
-    download_count: int = 0
     message: str = ""
 
 
@@ -29,6 +26,10 @@ class ArticleResponse(BaseModel):
     title: str = ""
     authors: str = ""
     journal: str = ""
+    pub_year: str = ""
+    impact_factor: str = ""
+    jcr_quartile: str = ""
+    cas_quartile: str = ""
     doi: str = ""
     pmid: Optional[int] = None
     pmcid: str = ""

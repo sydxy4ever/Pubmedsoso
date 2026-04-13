@@ -10,19 +10,12 @@ class Config:
     """Application configuration with sensible defaults."""
 
     db_dir: Path = Path("./data")
-    download_dir: Path = Path("./data/pdfs")
     export_dir: Path = Path("./data/exports")
 
     page_size: int = 50
     request_timeout: int = 30
     max_retries: int = 3
     retry_backoff: float = 1.0
-
-    download_timeout: int = 60
-    max_concurrent_downloads: int = 1
-
-    scihub_base_url: str = "https://sci-hub.se"
-    scihub_enabled: bool = True
 
     web_host: str = "0.0.0.0"
     web_port: int = 8000
@@ -44,10 +37,6 @@ class Config:
             "REQUEST_TIMEOUT": int,
             "MAX_RETRIES": int,
             "RETRY_BACKOFF": float,
-            "DOWNLOAD_TIMEOUT": int,
-            "MAX_CONCURRENT_DOWNLOADS": int,
-            "SCIHUB_BASE_URL": str,
-            "SCIHUB_ENABLED": lambda v: v.lower() in ("true", "1", "yes"),
             "WEB_HOST": str,
             "WEB_PORT": int,
             "MIN_REQUEST_INTERVAL": float,
@@ -58,7 +47,7 @@ class Config:
             if env_val is not None:
                 setattr(config, key.lower(), cast(env_val))
 
-        for key in ("DB_DIR", "DOWNLOAD_DIR", "EXPORT_DIR"):
+        for key in ("DB_DIR", "EXPORT_DIR"):
             env_val = os.environ.get(f"{prefix}{key}")
             if env_val is not None:
                 setattr(config, key.lower(), Path(env_val))
@@ -68,5 +57,4 @@ class Config:
     def ensure_dirs(self) -> None:
         """Create all configured directories if they don't exist."""
         self.db_dir.mkdir(parents=True, exist_ok=True)
-        self.download_dir.mkdir(parents=True, exist_ok=True)
         self.export_dir.mkdir(parents=True, exist_ok=True)

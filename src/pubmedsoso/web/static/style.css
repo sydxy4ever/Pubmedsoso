@@ -212,6 +212,101 @@ tr:hover {
     background: #f8f9fa;
 }
 
+.abstract-icon {
+    cursor: pointer;
+    font-size: 16px;
+    user-select: none;
+}
+
+.abstract-icon:hover {
+    opacity: 0.7;
+}
+
+.abstract-dialog {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.abstract-content {
+    background: white;
+    border-radius: 8px;
+    max-width: 700px;
+    width: 90%;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+}
+
+.abstract-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    border-bottom: 1px solid #eee;
+}
+
+.abstract-header h3 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: #333;
+    flex: 1;
+    padding-right: 12px;
+    word-break: break-word;
+}
+
+.abstract-close {
+    background: none;
+    border: none;
+    font-size: 24px;
+    cursor: pointer;
+    color: #999;
+    line-height: 1;
+    padding: 0;
+}
+
+.abstract-close:hover {
+    color: #333;
+}
+
+.abstract-body {
+    padding: 16px 20px;
+    overflow-y: auto;
+    font-size: 14px;
+    line-height: 1.7;
+    color: #444;
+    white-space: pre-wrap;
+}
+
+.abstract-translate {
+    padding: 12px 20px 16px;
+    border-top: 1px solid #eee;
+    background: #f8f9fa;
+}
+
+.translate-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #667eea;
+    margin-bottom: 6px;
+}
+
+.translate-text {
+    font-size: 14px;
+    line-height: 1.7;
+    color: #444;
+    white-space: pre-wrap;
+}
+
 .badge {
     display: inline-block;
     padding: 2px 8px;
@@ -257,6 +352,64 @@ tr:hover {
     font-size: 14px;
     color: #666;
     font-weight: normal;
+}
+
+.confirm-dialog {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.confirm-content {
+    background: white;
+    border-radius: 8px;
+    padding: 24px 32px;
+    max-width: 420px;
+    text-align: center;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+}
+
+.confirm-content p {
+    margin-bottom: 12px;
+    color: #333;
+}
+
+.confirm-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    margin-top: 16px;
+}
+
+th.sortable {
+    cursor: pointer;
+    user-select: none;
+}
+
+th.sortable:hover {
+    background: #e9ecef;
+}
+
+.rank-cell {
+    font-size: 13px;
+    color: #555;
+    white-space: nowrap;
+}
+
+td a {
+    color: #667eea;
+    text-decoration: none;
+}
+
+td a:hover {
+    text-decoration: underline;
 }
 
 @media (max-width: 768px) {

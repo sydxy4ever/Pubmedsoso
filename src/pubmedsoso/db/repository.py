@@ -16,11 +16,16 @@ class ArticleRepository:
         self.db = db
 
     def _row_to_article(self, row: sqlite3.Row) -> Article:
+        keys = row.keys()
         return Article(
             id=row["id"],
             title=row["title"],
             authors=row["authors"],
             journal=row["journal"],
+            pub_year=row["pub_year"] if "pub_year" in keys else "",
+            impact_factor=row["impact_factor"] if "impact_factor" in keys else "",
+            jcr_quartile=row["jcr_quartile"] if "jcr_quartile" in keys else "",
+            cas_quartile=row["cas_quartile"] if "cas_quartile" in keys else "",
             doi=row["doi"],
             pmid=row["pmid"],
             pmcid=row["pmcid"],
@@ -40,13 +45,18 @@ class ArticleRepository:
             for article in articles:
                 conn.execute(
                     """INSERT INTO articles
-                       (title, authors, journal, doi, pmid, pmcid, abstract,
-                        keywords, affiliations, free_status, is_review, save_path)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       (title, authors, journal, pub_year, impact_factor, jcr_quartile, cas_quartile,
+                        doi, pmid, pmcid, abstract, keywords, affiliations,
+                        free_status, is_review, save_path)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         article.title,
                         article.authors,
                         article.journal,
+                        article.pub_year,
+                        article.impact_factor,
+                        article.jcr_quartile,
+                        article.cas_quartile,
                         article.doi,
                         article.pmid,
                         article.pmcid,
@@ -95,6 +105,19 @@ class ArticleRepository:
             conn.execute(
                 "UPDATE articles SET save_path = ? WHERE pmcid = ?",
                 (path, pmcid),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def update_rank_fields(self, pmid: int, article: Article) -> None:
+        conn = self.db.get_connection()
+        try:
+            conn.execute(
+                """UPDATE articles
+                   SET impact_factor = ?, jcr_quartile = ?, cas_quartile = ?
+                   WHERE pmid = ?""",
+                (article.impact_factor, article.jcr_quartile, article.cas_quartile, pmid),
             )
             conn.commit()
         finally:

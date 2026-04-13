@@ -12,19 +12,19 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
+from deep_translator import GoogleTranslator
 
 from pubmedsoso.config import Config
-from pubmedsoso.core.detail import DetailFetcher
-from pubmedsoso.core.download import DownloadManager
 from pubmedsoso.core.export import Exporter
+from pubmedsoso.core.rank import rank_articles
 from pubmedsoso.core.search import PubMedSearcher
 from pubmedsoso.db.database import Database
 from pubmedsoso.db.repository import ArticleRepository
 from pubmedsoso.models import Article, SearchParams
 from pubmedsoso.web.schemas import (
     ArticleResponse,
-    DownloadRequest,
     HistoryItem,
+    SearchConfirmRequest,
     SearchRequest,
     TaskStatus,
 )
@@ -37,9 +37,11 @@ _tasks: dict[str, TaskStatus] = {}
 _task_articles: dict[str, list[Article]] = {}
 _task_dbs: dict[str, Database] = {}
 _task_timestamps: dict[str, datetime] = {}
+_task_keywords: dict[str, str] = {}
 _state_lock = threading.Lock()
 
 _MAX_TASK_AGE = timedelta(hours=1)
+_LARGE_RESULT_THRESHOLD = 500
 
 
 def _cleanup_old_tasks() -> None:
@@ -63,7 +65,26 @@ def _update_task(task_id: str, **kwargs: object) -> None:
             setattr(_tasks[task_id], key, value)
 
 
-def _run_search(task_id: str, request: SearchRequest, config: Config) -> None:
+def _run_search_count(task_id: str, keyword: str, config: Config) -> None:
+    try:
+        _update_task(task_id, status="running", message="Counting results...")
+
+        searcher = PubMedSearcher(config)
+        total_count, _ = searcher._esearch(keyword)
+
+        _update_task(
+            task_id,
+            status="confirm" if total_count > _LARGE_RESULT_THRESHOLD else "counted",
+            result_count=total_count,
+            message=f"Found {total_count} results",
+        )
+
+    except Exception as e:
+        logger.exception("Search count failed")
+        _update_task(task_id, status="failed", message=str(e))
+
+
+def _run_search_full(task_id: str, keyword: str, config: Config) -> None:
     try:
         _update_task(task_id, status="running", message="Searching PubMed...")
 
@@ -71,16 +92,13 @@ def _run_search(task_id: str, request: SearchRequest, config: Config) -> None:
         db_path = config.db_dir / f"pubmed_{timestamp}.db"
         db = Database(db_path)
         db.init_schema()
+        db.set_meta("keyword", keyword)
         with _state_lock:
             _task_dbs[task_id] = db
         repo = ArticleRepository(db)
 
         searcher = PubMedSearcher(config)
-        params = SearchParams(
-            keyword=request.keyword,
-            page_num=request.page_num,
-            page_size=config.page_size,
-        )
+        params = SearchParams(keyword=keyword)
         result = searcher.search(params)
 
         _update_task(
@@ -96,14 +114,16 @@ def _run_search(task_id: str, request: SearchRequest, config: Config) -> None:
 
         _update_task(task_id, message="Saving to database...")
         repo.insert_batch(result.articles)
-        _update_task(task_id, progress=0.4)
+        _update_task(task_id, progress=0.5)
 
-        _update_task(task_id, message="Fetching article details...")
-        fetcher = DetailFetcher(config)
-        fetcher.fetch_details(result.articles)
+        _update_task(task_id, message="Ranking journals...")
+        rank_articles(result.articles)
         for article in result.articles:
-            if article.pmid:
-                repo.update_detail(article)
+            if article.pmid and (
+                article.impact_factor or article.jcr_quartile or article.cas_quartile
+            ):
+                repo.update_rank_fields(article.pmid, article)
+        _update_task(task_id, progress=0.7)
 
         with _state_lock:
             _task_articles[task_id] = result.articles
@@ -119,49 +139,8 @@ def _run_search(task_id: str, request: SearchRequest, config: Config) -> None:
         _update_task(task_id, status="failed", message=str(e))
 
 
-def _run_download(task_id: str, download_num: int, config: Config) -> None:
-    try:
-        _update_task(task_id, status="downloading", message="Downloading PDFs...")
-
-        articles = _task_articles.get(task_id, [])
-        if not articles:
-            db = _task_dbs.get(task_id)
-            if db:
-                repo = ArticleRepository(db)
-                articles = repo.get_all_articles()
-
-        if not articles:
-            _update_task(task_id, status="failed", message="No articles found for download")
-            return
-
-        downloader = DownloadManager(config)
-        results = downloader.download_batch(articles, limit=download_num)
-        downloaded = sum(1 for _, p in results if p is not None)
-
-        db = _task_dbs.get(task_id)
-        if db:
-            repo = ArticleRepository(db)
-            for article, path in results:
-                if path and article.pmcid:
-                    repo.update_save_path(article.pmcid, str(path))
-            with _state_lock:
-                _task_articles[task_id] = repo.get_all_articles()
-
-        _update_task(
-            task_id,
-            status="completed",
-            message=f"Downloaded {downloaded} PDFs",
-            download_count=downloaded,
-            progress=1.0,
-        )
-
-    except Exception as e:
-        logger.exception("Download task failed")
-        _update_task(task_id, status="failed", message=str(e))
-
-
 @router.post("/search")
-async def start_search(request: SearchRequest) -> dict[str, str]:
+async def start_search(request: SearchRequest) -> dict:
     task_id = str(uuid.uuid4())[:8]
     with _state_lock:
         _tasks[task_id] = TaskStatus(
@@ -170,6 +149,7 @@ async def start_search(request: SearchRequest) -> dict[str, str]:
             message="Task created",
         )
         _task_timestamps[task_id] = datetime.now()
+        _task_keywords[task_id] = request.keyword
 
     config = Config.from_env()
     config.ensure_dirs()
@@ -177,31 +157,32 @@ async def start_search(request: SearchRequest) -> dict[str, str]:
     _cleanup_old_tasks()
 
     loop = asyncio.get_running_loop()
-    loop.run_in_executor(None, _run_search, task_id, request, config)
+    loop.run_in_executor(None, _run_search_count, task_id, request.keyword, config)
 
     return {"task_id": task_id}
 
 
-@router.post("/download")
-async def start_download(request: DownloadRequest) -> dict[str, str]:
+@router.post("/search/confirm")
+async def confirm_search(request: SearchConfirmRequest) -> dict[str, str]:
     task_id = request.task_id
     if task_id not in _tasks:
         raise HTTPException(status_code=404, detail="Task not found")
-    if _tasks[task_id].status not in ("completed", "failed"):
-        raise HTTPException(status_code=400, detail="Task is still running")
 
-    with _state_lock:
-        _tasks[task_id] = TaskStatus(
-            task_id=task_id,
-            status="pending",
-            message="Download starting...",
-        )
+    task = _tasks[task_id]
+    if task.status not in ("confirm", "counted"):
+        raise HTTPException(status_code=400, detail=f"Task status is {task.status}, cannot confirm")
+
+    keyword = _task_keywords.get(task_id, "")
+    if not keyword:
+        raise HTTPException(status_code=400, detail="No keyword found for task")
+
+    _update_task(task_id, status="running", message="Fetching all results...")
 
     config = Config.from_env()
     config.ensure_dirs()
 
     loop = asyncio.get_running_loop()
-    loop.run_in_executor(None, _run_download, task_id, request.download_num, config)
+    loop.run_in_executor(None, _run_search_full, task_id, keyword, config)
 
     return {"task_id": task_id}
 
@@ -217,7 +198,7 @@ async def get_task_status(task_id: str) -> TaskStatus:
 async def get_articles(
     task_id: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=100000),
 ) -> dict:
     if task_id and task_id in _task_articles:
         articles = _task_articles[task_id]
@@ -245,6 +226,10 @@ async def get_articles(
                 title=a.title,
                 authors=a.authors,
                 journal=a.journal,
+                pub_year=a.pub_year,
+                impact_factor=a.impact_factor,
+                jcr_quartile=a.jcr_quartile,
+                cas_quartile=a.cas_quartile,
                 doi=a.doi,
                 pmid=a.pmid,
                 pmcid=a.pmcid,
@@ -325,13 +310,26 @@ async def get_history() -> list[HistoryItem]:
         articles = repo.get_all_articles()
 
         created_at = datetime.fromtimestamp(db_file.stat().st_mtime).isoformat()
+        keyword = db.get_meta("keyword") or timestamp
 
         history.append(
             HistoryItem(
-                task_id=timestamp,
+                task_id=keyword,
                 article_count=len(articles),
                 created_at=created_at,
             )
         )
 
     return history
+
+
+@router.get("/translate")
+async def translate_text(text: str = Query(..., min_length=1)) -> dict:
+    try:
+        result = await asyncio.get_running_loop().run_in_executor(
+            None, lambda: GoogleTranslator(source="en", target="zh-CN").translate(text)
+        )
+        return {"translated": result}
+    except Exception as e:
+        logger.exception("Translation failed")
+        raise HTTPException(status_code=500, detail=str(e))

@@ -15,6 +15,8 @@ dependencies = [
     "fastapi>=0.104",
     "uvicorn>=0.24",
     "pydantic>=2.0",
+    "impact-factor>=1.1",
+    "deep-translator>=1.11",
 ]
 
 [project.optional-dependencies]

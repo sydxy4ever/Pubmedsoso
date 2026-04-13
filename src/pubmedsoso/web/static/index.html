@@ -18,13 +18,7 @@
                 <div class="form-group">
                     <input type="text" id="keyword" name="keyword" required placeholder="输入搜索关键词..." autofocus>
                 </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label for="page-num">检索页数</label>
-                        <input type="number" id="page-num" name="page_num" value="10" min="1" max="100">
-                    </div>
-                    <button type="submit" id="search-btn">搜索</button>
-                </div>
+                <button type="submit" id="search-btn">搜索</button>
             </form>
         </section>
 
@@ -39,13 +33,37 @@
             <p id="progress-message"></p>
         </section>
 
+        <div class="confirm-dialog" id="confirm-dialog" style="display: none;">
+            <div class="confirm-content">
+                <p>搜索结果共 <strong id="confirm-count">0</strong> 条，获取全部数据可能需要较长时间。</p>
+                <p>是否继续？</p>
+                <div class="confirm-actions">
+                    <button class="btn-primary" onclick="confirmAndFetch()">继续获取</button>
+                    <button class="btn-secondary" onclick="cancelSearch()">取消</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="abstract-dialog" id="abstract-dialog" style="display: none;">
+            <div class="abstract-content">
+                <div class="abstract-header">
+                    <h3 id="abstract-title"></h3>
+                    <button class="abstract-close" onclick="closeAbstract()">&times;</button>
+                </div>
+                <div class="abstract-body" id="abstract-body"></div>
+                <div class="abstract-translate" id="abstract-translate">
+                    <div class="translate-label">中文翻译</div>
+                    <div class="translate-text" id="translate-text">翻译中...</div>
+                </div>
+            </div>
+        </div>
+
         <section class="results-section" id="results-section" style="display: none;">
             <div class="results-header">
                 <h2>搜索结果 <span id="result-count"></span></h2>
                 <div class="actions">
                     <button id="export-xlsx" class="btn-secondary">导出 Excel</button>
                     <button id="export-csv" class="btn-secondary">导出 CSV</button>
-                    <button id="download-pdf" class="btn-primary">下载免费 PDF</button>
                 </div>
             </div>
             <div class="table-container">
@@ -53,10 +71,15 @@
                     <thead>
                         <tr>
                             <th>#</th>
-                            <th>标题</th>
+                            <th class="sortable" data-sort="title">标题 ↕</th>
                             <th>作者</th>
-                            <th>期刊</th>
+                            <th class="sortable" data-sort="journal">期刊 ↕</th>
+                            <th class="sortable" data-sort="impact_factor">IF ↕</th>
+                            <th class="sortable" data-sort="jcr_quartile">JCR ↕</th>
+                            <th class="sortable" data-sort="cas_quartile">中科院 ↕</th>
                             <th>PMID</th>
+                            <th>PMCID</th>
+                            <th>摘要</th>
                             <th>免费</th>
                             <th>Review</th>
                         </tr>
@@ -72,7 +95,7 @@
             <table id="history-table">
                 <thead>
                     <tr>
-                        <th>任务 ID</th>
+                        <th>检索词</th>
                         <th>文献数</th>
                         <th>时间</th>
                     </tr>

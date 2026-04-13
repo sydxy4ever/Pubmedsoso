@@ -1,0 +1,42 @@
+<?xml version="1.0" ?>
+<PubmedArticleSet>
+<PubmedArticle><MedlineCitation Status="MEDLINE" Owner="NLM"><PMID Version="1">12345678</PMID>
+<Article PubModel="Print"><Journal><ISSN IssnType="Electronic">1234-5678</ISSN><JournalIssue CitedMedium="Internet"><Volume>789</Volume><Issue>1</Issue><PubDate><Year>2024</Year></PubDate></JournalIssue><Title>Neuroscience Letters</Title><ISOAbbreviation>Neurosci Lett</ISOAbbreviation></Journal>
+<ArticleTitle>Alzheimer's disease and neuroinflammation</ArticleTitle>
+<ELocationID EIdType="doi" ValidYN="Y">10.1234/test.2024.123</ELocationID>
+<AuthorList><Author><LastName>Smith</LastName><ForeName>J</ForeName></Author><Author><LastName>Wang</LastName><ForeName>L</ForeName></Author><Author><LastName>Chen</LastName><ForeName>Y</ForeName></Author></AuthorList>
+<Abstract><AbstractText Label="BACKGROUND" NlmCategory="BACKGROUND">Neuroinflammation plays a key role.</AbstractText><AbstractText Label="CONCLUSION" NlmCategory="CONCLUSIONS">Targeting neuroinflammation is promising.</AbstractText></Abstract>
+<Language>eng</Language>
+<PublicationTypeList><PublicationType>Journal Article</PublicationType></PublicationTypeList>
+<ArticleIdList><ArticleId IdType="pubmed">12345678</ArticleId><ArticleId IdType="doi">10.1234/test.2024.123</ArticleId><ArticleId IdType="pmc">PMC9876543</ArticleId></ArticleIdList>
+</Article>
+<KeywordList><Keyword>Alzheimer</Keyword><Keyword>neuroinflammation</Keyword><Keyword>therapy</Keyword></KeywordList>
+</MedlineCitation>
+</PubmedArticle>
+
+<PubmedArticle><MedlineCitation Status="MEDLINE" Owner="NLM"><PMID Version="1">23456789</PMID>
+<Article PubModel="Print"><Journal><ISSN IssnType="Electronic">5678-1234</ISSN><JournalIssue CitedMedium="Internet"><Volume>25</Volume><Issue>3</Issue><PubDate><Year>2024</Year></PubDate></JournalIssue><Title>Pain Medicine</Title><ISOAbbreviation>Pain Med</ISOAbbreviation></Journal>
+<ArticleTitle>Novel therapeutic approaches for headache</ArticleTitle>
+<ELocationID EIdType="doi" ValidYN="Y">10.5678/test.2024.456</ELocationID>
+<AuthorList><Author><LastName>Brown</LastName><ForeName>A</ForeName></Author><Author><LastName>Lee</LastName><ForeName>K</ForeName></Author></AuthorList>
+<Abstract><AbstractText>This is a review of headache treatments.</AbstractText></Abstract>
+<Language>eng</Language>
+<PublicationTypeList><PublicationType>Review</PublicationType></PublicationTypeList>
+<ArticleIdList><ArticleId IdType="pubmed">23456789</ArticleId><ArticleId IdType="doi">10.5678/test.2024.456</ArticleId></ArticleIdList>
+</Article>
+</MedlineCitation>
+</PubmedArticle>
+
+<PubmedArticle><MedlineCitation Status="MEDLINE" Owner="NLM"><PMID Version="1">34567890</PMID>
+<Article PubModel="Print"><Journal><ISSN IssnType="Electronic">9012-3456</ISSN><JournalIssue CitedMedium="Internet"><Volume>43</Volume><Issue>2</Issue><PubDate><Year>2024</Year></PubDate></JournalIssue><Title>Oncogene</Title><ISOAbbreviation>Oncogene</ISOAbbreviation></Journal>
+<ArticleTitle>Cancer therapy resistance mechanisms</ArticleTitle>
+<ELocationID EIdType="doi" ValidYN="Y">10.9012/test.2024.789</ELocationID>
+<AuthorList><Author><LastName>Davis</LastName><ForeName>R</ForeName></Author></AuthorList>
+<Abstract><AbstractText>Cancer cells develop resistance through multiple mechanisms.</AbstractText></Abstract>
+<Language>eng</Language>
+<PublicationTypeList><PublicationType>Journal Article</PublicationType></PublicationTypeList>
+<ArticleIdList><ArticleId IdType="pubmed">34567890</ArticleId><ArticleId IdType="doi">10.9012/test.2024.789</ArticleId></ArticleIdList>
+</Article>
+</MedlineCitation>
+</PubmedArticle>
+</PubmedArticleSet>

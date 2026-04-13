@@ -7,11 +7,14 @@ from pubmedsoso.core.export import Exporter, COLUMNS, _article_to_row
 
 def test_columns_tuple():
     assert isinstance(COLUMNS, tuple)
-    assert len(COLUMNS) == 13
+    assert len(COLUMNS) == 16
     assert COLUMNS[0] == "序号"
     assert COLUMNS[1] == "文献标题"
-    assert COLUMNS[10] == "是否有免费全文"
-    assert COLUMNS[11] == "是否是review"
+    assert COLUMNS[4] == "影响因子"
+    assert COLUMNS[5] == "JCR分区"
+    assert COLUMNS[6] == "中科院分区"
+    assert COLUMNS[13] == "是否有免费全文"
+    assert COLUMNS[14] == "是否是review"
 
 
 def test_article_to_row():
@@ -35,15 +38,18 @@ def test_article_to_row():
     assert row[1] == "Test Article"
     assert row[2] == "Author A, Author B"
     assert row[3] == "Nature 2024"
-    assert row[4] == "10.1234/test"
-    assert row[5] == "12345678"
-    assert row[6] == "PMC12345"
-    assert row[7] == "This is an abstract."
-    assert row[8] == "cancer; therapy"
-    assert row[9] == "University A"
-    assert row[10] == "是"
-    assert row[11] == "是"
-    assert row[12] == "/path/to/file.pdf"
+    assert row[4] == ""
+    assert row[5] == ""
+    assert row[6] == ""
+    assert row[7] == "10.1234/test"
+    assert row[8] == "12345678"
+    assert row[9] == "PMC12345"
+    assert row[10] == "This is an abstract."
+    assert row[11] == "cancer; therapy"
+    assert row[12] == "University A"
+    assert row[13] == "是"
+    assert row[14] == "是"
+    assert row[15] == "/path/to/file.pdf"
 
 
 def test_export_xlsx_free_status_display(tmp_path):
@@ -59,9 +65,9 @@ def test_export_xlsx_free_status_display(tmp_path):
 
     wb = load_workbook(result)
     ws = wb.active
-    assert ws.cell(row=2, column=11).value == "是"
-    assert ws.cell(row=3, column=11).value == "否"
-    assert ws.cell(row=4, column=11).value == "否"
+    assert ws.cell(row=2, column=14).value == "是"
+    assert ws.cell(row=3, column=14).value == "否"
+    assert ws.cell(row=4, column=14).value == "否"
     wb.close()
 
 
@@ -154,12 +160,12 @@ def test_export_csv(tmp_path):
     assert rows[0] == list(COLUMNS)
     assert rows[1][0] == "1"
     assert rows[1][1] == "Article 1"
-    assert rows[1][10] == "是"
-    assert rows[1][11] == "是"
+    assert rows[1][13] == "是"
+    assert rows[1][14] == "是"
     assert rows[2][0] == "2"
     assert rows[2][1] == "Article 2"
-    assert rows[2][10] == "否"
-    assert rows[2][11] == "否"
+    assert rows[2][13] == "否"
+    assert rows[2][14] == "否"
 
 
 def test_export_creates_parent_directories(tmp_path):

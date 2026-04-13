@@ -20,6 +20,10 @@ class Article:
     title: str = ""
     authors: str = ""
     journal: str = ""
+    pub_year: str = ""
+    impact_factor: str = ""
+    jcr_quartile: str = ""
+    cas_quartile: str = ""
     doi: str = ""
     pmid: int | None = None
     pmcid: str = ""
@@ -45,6 +49,3 @@ class SearchParams:
     """Parameters for a PubMed search."""
 
     keyword: str = ""
-    page_size: int = 50
-    page_num: int = 10
-    download_limit: int = 10

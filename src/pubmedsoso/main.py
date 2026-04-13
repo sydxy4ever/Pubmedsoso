@@ -9,9 +9,8 @@ import typer
 
 from pubmedsoso import __version__
 from pubmedsoso.config import Config
-from pubmedsoso.core.detail import DetailFetcher
-from pubmedsoso.core.download import DownloadManager
 from pubmedsoso.core.export import Exporter
+from pubmedsoso.core.rank import rank_articles
 from pubmedsoso.core.search import PubMedSearcher
 from pubmedsoso.db.database import Database
 from pubmedsoso.db.repository import ArticleRepository
@@ -19,7 +18,7 @@ from pubmedsoso.models import SearchParams
 
 app = typer.Typer(
     name="pubmedsoso",
-    help="PubMed literature crawler - search, extract, download, export",
+    help="PubMed literature crawler - search, extract, export",
     add_completion=False,
 )
 
@@ -47,12 +46,9 @@ def main(
 @app.command()
 def search(
     keyword: str = typer.Argument(..., help="Search keyword"),
-    page_num: int = typer.Option(10, "-n", "--page-num", help="Number of pages to crawl"),
-    download_num: int = typer.Option(10, "-d", "--download-num", help="Number of PDFs to download"),
-    no_download: bool = typer.Option(False, "--no-download", help="Skip PDF downloads"),
     format: str = typer.Option("xlsx", "-f", "--format", help="Export format: xlsx or csv"),
 ) -> None:
-    """Search PubMed, fetch details, download PDFs, and export results."""
+    """Search PubMed (fetches ALL results) and export."""
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
     config = Config.from_env()
@@ -66,14 +62,15 @@ def search(
     typer.echo(f"Initializing database: {db_path}")
     db = Database(db_path)
     db.init_schema()
+    db.set_meta("keyword", keyword)
     repo = ArticleRepository(db)
 
     typer.echo(f"Searching for: {keyword}")
     searcher = PubMedSearcher(config)
-    params = SearchParams(keyword=keyword, page_num=page_num, page_size=config.page_size)
+    params = SearchParams(keyword=keyword)
     result = searcher.search(params)
 
-    typer.echo(f"Found {result.total_count} articles, crawled {len(result.articles)} entries")
+    typer.echo(f"Found {result.total_count} articles, fetched {len(result.articles)} entries")
 
     if not result.articles:
         typer.echo("No articles found, exiting.")
@@ -82,20 +79,11 @@ def search(
     typer.echo("Saving search results to database...")
     repo.insert_batch(result.articles)
 
-    typer.echo("Fetching article details...")
-    fetcher = DetailFetcher(config)
-    fetcher.fetch_details(result.articles)
+    typer.echo("Ranking journals...")
+    rank_articles(result.articles)
     for article in result.articles:
-        if article.pmid:
-            repo.update_detail(article)
-
-    if not no_download and download_num > 0:
-        typer.echo(f"Downloading up to {download_num} PDFs...")
-        downloader = DownloadManager(config)
-        downloaded = downloader.download_batch(result.articles, limit=download_num)
-        for path in downloaded:
-            typer.echo(f"  Downloaded: {path}")
-        typer.echo(f"Downloaded {len(downloaded)} PDFs to {config.download_dir}")
+        if article.pmid and (article.impact_factor or article.jcr_quartile or article.cas_quartile):
+            repo.update_rank_fields(article.pmid, article)
 
     typer.echo(f"Exporting results to {export_path}...")
     if format == "xlsx":

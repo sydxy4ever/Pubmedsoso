@@ -10,6 +10,10 @@ CREATE TABLE IF NOT EXISTS articles (
     title TEXT NOT NULL DEFAULT '',
     authors TEXT NOT NULL DEFAULT '',
     journal TEXT NOT NULL DEFAULT '',
+    pub_year TEXT NOT NULL DEFAULT '',
+    impact_factor TEXT NOT NULL DEFAULT '',
+    jcr_quartile TEXT NOT NULL DEFAULT '',
+    cas_quartile TEXT NOT NULL DEFAULT '',
     doi TEXT NOT NULL DEFAULT '',
     pmid INTEGER,
     pmcid TEXT NOT NULL DEFAULT '',
@@ -20,7 +24,20 @@ CREATE TABLE IF NOT EXISTS articles (
     is_review INTEGER NOT NULL DEFAULT 0,
     save_path TEXT NOT NULL DEFAULT ''
 );
+
+CREATE TABLE IF NOT EXISTS search_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL DEFAULT ''
+);
 """
+
+
+_MIGRATE_SQL = [
+    "ALTER TABLE articles ADD COLUMN impact_factor TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE articles ADD COLUMN jcr_quartile TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE articles ADD COLUMN cas_quartile TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE articles ADD COLUMN pub_year TEXT NOT NULL DEFAULT ''",
+]
 
 
 class Database:
@@ -31,16 +48,46 @@ class Database:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
     def get_connection(self) -> sqlite3.Connection:
-        """Get a new database connection with row factory."""
         conn = sqlite3.connect(str(self.db_path))
         conn.row_factory = sqlite3.Row
         return conn
 
     def init_schema(self) -> None:
-        """Initialize database schema. Idempotent."""
+        """Initialize database schema. Idempotent with migration support."""
         conn = self.get_connection()
         try:
-            conn.execute(_SCHEMA_SQL)
+            conn.executescript(_SCHEMA_SQL)
             conn.commit()
+            try:
+                for sql in _MIGRATE_SQL:
+                    conn.execute(sql)
+                conn.commit()
+            except sqlite3.OperationalError:
+                pass
+        finally:
+            conn.close()
+
+    def set_meta(self, key: str, value: str) -> None:
+        conn = self.get_connection()
+        try:
+            conn.execute(
+                "INSERT OR REPLACE INTO search_meta (key, value) VALUES (?, ?)",
+                (key, value),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def get_meta(self, key: str) -> str:
+        conn = self.get_connection()
+        try:
+            cursor = conn.execute(
+                "SELECT value FROM search_meta WHERE key = ?",
+                (key,),
+            )
+            row = cursor.fetchone()
+            return row["value"] if row else ""
+        except sqlite3.OperationalError:
+            return ""
         finally:
             conn.close()

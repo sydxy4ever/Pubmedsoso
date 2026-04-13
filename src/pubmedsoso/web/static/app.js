@@ -1,6 +1,10 @@
 let currentTaskId = null;
 let currentPage = 1;
 let pollInterval = null;
+let allArticles = [];
+let sortField = null;
+let sortAsc = true;
+const PAGE_SIZE = 20;
 
 document.addEventListener('DOMContentLoaded', () => {
     loadHistory();
@@ -9,16 +13,55 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('search-form').addEventListener('submit', handleSearch);
     document.getElementById('export-xlsx').addEventListener('click', () => exportResults('xlsx'));
     document.getElementById('export-csv').addEventListener('click', () => exportResults('csv'));
-    document.getElementById('download-pdf').addEventListener('click', handleDownload);
+
+    document.querySelectorAll('th.sortable').forEach(th => {
+        th.addEventListener('click', () => handleSort(th.dataset.sort));
+    });
 });
+
+function handleSort(field) {
+    if (sortField === field) {
+        sortAsc = !sortAsc;
+    } else {
+        sortField = field;
+        sortAsc = true;
+    }
+
+    document.querySelectorAll('th.sortable').forEach(th => {
+        const arrow = th.dataset.sort === field ? (sortAsc ? ' ↑' : ' ↓') : ' ↕';
+        th.textContent = th.textContent.replace(/ [↕↑↓]$/, '') + arrow;
+    });
+
+    allArticles.sort((a, b) => {
+        let va = a[field] || '';
+        let vb = b[field] || '';
+
+        if (field === 'impact_factor') {
+            va = parseFloat(va) || 0;
+            vb = parseFloat(vb) || 0;
+            return sortAsc ? va - vb : vb - va;
+        }
+
+        if (field === 'jcr_quartile' || field === 'cas_quartile') {
+            va = va.replace(/[^Q1-4]/g, '').replace('Q', '') || '9';
+            vb = vb.replace(/[^Q1-4]/g, '').replace('Q', '') || '9';
+            const cmp = va.localeCompare(vb);
+            return sortAsc ? cmp : -cmp;
+        }
+
+        const cmp = va.localeCompare(vb, 'zh');
+        return sortAsc ? cmp : -cmp;
+    });
+
+    currentPage = 1;
+    renderPage();
+}
 
 async function handleSearch(e) {
     e.preventDefault();
 
     const keyword = document.getElementById('keyword').value.trim();
     if (!keyword) return;
-
-    const pageNum = parseInt(document.getElementById('page-num').value) || 10;
 
     const searchBtn = document.getElementById('search-btn');
     searchBtn.disabled = true;
@@ -28,7 +71,7 @@ async function handleSearch(e) {
         const response = await fetch('/api/search', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ keyword, page_num: pageNum }),
+            body: JSON.stringify({ keyword }),
         });
 
         const data = await response.json();
@@ -45,35 +88,6 @@ async function handleSearch(e) {
     }
 }
 
-async function handleDownload() {
-    if (!currentTaskId) { alert('请先搜索'); return; }
-
-    const downloadBtn = document.getElementById('download-pdf');
-    downloadBtn.disabled = true;
-    downloadBtn.textContent = '下载中...';
-
-    try {
-        const response = await fetch('/api/download', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ task_id: currentTaskId, download_num: 10 }),
-        });
-
-        const data = await response.json();
-        document.getElementById('progress-section').style.display = 'block';
-        pollTaskStatus(() => {
-            downloadBtn.disabled = false;
-            downloadBtn.textContent = '下载免费 PDF';
-            loadArticles(currentTaskId);
-        });
-
-    } catch (error) {
-        alert('下载失败: ' + error.message);
-        downloadBtn.disabled = false;
-        downloadBtn.textContent = '下载免费 PDF';
-    }
-}
-
 function pollTaskStatus(onDone = null) {
     if (pollInterval) clearInterval(pollInterval);
 
@@ -83,6 +97,21 @@ function pollTaskStatus(onDone = null) {
             const task = await response.json();
 
             updateProgress(task);
+
+            if (task.status === 'confirm') {
+                clearInterval(pollInterval);
+                const searchBtn = document.getElementById('search-btn');
+                searchBtn.disabled = false;
+                searchBtn.textContent = '搜索';
+                showConfirmDialog(task.result_count);
+                return;
+            }
+
+            if (task.status === 'counted') {
+                clearInterval(pollInterval);
+                confirmAndFetch();
+                return;
+            }
 
             if (task.status === 'completed' || task.status === 'failed') {
                 clearInterval(pollInterval);
@@ -104,6 +133,42 @@ function pollTaskStatus(onDone = null) {
     }, 1000);
 }
 
+function showConfirmDialog(totalCount) {
+    document.getElementById('progress-section').style.display = 'none';
+    const dialog = document.getElementById('confirm-dialog');
+    document.getElementById('confirm-count').textContent = totalCount;
+    dialog.style.display = 'block';
+}
+
+async function confirmAndFetch() {
+    const dialog = document.getElementById('confirm-dialog');
+    dialog.style.display = 'none';
+
+    try {
+        const response = await fetch('/api/search/confirm', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ task_id: currentTaskId }),
+        });
+
+        const data = await response.json();
+
+        document.getElementById('progress-section').style.display = 'block';
+        document.getElementById('results-section').style.display = 'none';
+        pollTaskStatus();
+
+    } catch (error) {
+        alert('确认失败: ' + error.message);
+    }
+}
+
+function cancelSearch() {
+    const dialog = document.getElementById('confirm-dialog');
+    dialog.style.display = 'none';
+    document.getElementById('search-btn').disabled = false;
+    document.getElementById('search-btn').textContent = '搜索';
+}
+
 function updateProgress(task) {
     document.getElementById('progress-status').textContent =
         task.status.charAt(0).toUpperCase() + task.status.slice(1);
@@ -114,22 +179,41 @@ function updateProgress(task) {
     document.getElementById('progress-message').textContent = task.message;
 }
 
-async function loadArticles(taskId = null, page = 1) {
-    currentPage = page;
-    let url = `/api/articles?page=${page}&page_size=20`;
+async function loadArticles(taskId = null) {
+    let url = '/api/articles?page=1&page_size=99999';
     if (taskId) url += `&task_id=${taskId}`;
 
     try {
         const response = await fetch(url);
         const data = await response.json();
 
-        renderArticles(data.articles);
+        allArticles = data.articles;
+        currentPage = 1;
+        sortField = null;
+        sortAsc = true;
+        document.querySelectorAll('th.sortable').forEach(th => {
+            th.textContent = th.textContent.replace(/ [↕↑↓]$/, '') + ' ↕';
+        });
+
         document.getElementById('result-count').textContent =
-            `(${data.total} 篇)`;
-        renderPagination(data.total, data.page, data.page_size);
+            `(${allArticles.length} 篇)`;
+        renderPage();
     } catch (error) {
         console.error('Failed to load articles:', error);
     }
+}
+
+function renderPage() {
+    const total = allArticles.length;
+    const totalPages = Math.ceil(total / PAGE_SIZE);
+    if (currentPage > totalPages) currentPage = totalPages || 1;
+
+    const start = (currentPage - 1) * PAGE_SIZE;
+    const end = start + PAGE_SIZE;
+    const pageArticles = allArticles.slice(start, end);
+
+    renderArticles(pageArticles);
+    renderPagination(total, currentPage, PAGE_SIZE);
 }
 
 function renderArticles(articles) {
@@ -139,7 +223,7 @@ function renderArticles(articles) {
     articles.forEach((article, index) => {
         const row = document.createElement('tr');
         row.innerHTML = `
-            <td>${(currentPage - 1) * 20 + index + 1}</td>
+            <td>${(currentPage - 1) * PAGE_SIZE + index + 1}</td>
             <td class="title-cell" title="${escapeHtml(article.title)}">
                 ${escapeHtml(truncate(article.title, 50))}
             </td>
@@ -147,7 +231,18 @@ function renderArticles(articles) {
                 ${escapeHtml(truncate(article.authors, 30))}
             </td>
             <td>${escapeHtml(truncate(article.journal, 20))}</td>
-            <td>${article.pmid || '-'}</td>
+            <td class="rank-cell">${escapeHtml(article.impact_factor)}</td>
+            <td class="rank-cell">${escapeHtml(article.jcr_quartile)}</td>
+            <td class="rank-cell">${escapeHtml(article.cas_quartile)}</td>
+            <td>${article.pmid ?
+                `<a href="https://pubmed.ncbi.nlm.nih.gov/${article.pmid}/" target="_blank" rel="noopener">${article.pmid}</a>` :
+                '-'}</td>
+            <td>${article.pmcid ?
+                `<a href="https://www.ncbi.nlm.nih.gov/pmc/articles/${article.pmcid}/" target="_blank" rel="noopener">${article.pmcid}</a>` :
+                '-'}</td>
+            <td>${article.abstract ?
+                `<span class="abstract-icon" onclick="showAbstract(${(currentPage - 1) * PAGE_SIZE + index})" title="查看摘要">📄</span>` :
+                ''}</td>
             <td>${article.free_status === 2 ?
                 '<span class="badge badge-success">免费</span>' :
                 (article.free_status === 1 ?
@@ -195,7 +290,10 @@ function createPageButton(page, active = false) {
     const btn = document.createElement('button');
     btn.textContent = page;
     btn.className = active ? 'active' : '';
-    btn.addEventListener('click', () => loadArticles(currentTaskId, page));
+    btn.addEventListener('click', () => {
+        currentPage = page;
+        renderPage();
+    });
     return btn;
 }
 
@@ -255,4 +353,37 @@ function escapeHtml(str) {
 function formatDate(isoString) {
     const date = new Date(isoString);
     return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+}
+
+let currentAbstractIndex = -1;
+
+function showAbstract(index) {
+    const article = allArticles[index];
+    if (!article) return;
+    currentAbstractIndex = index;
+    document.getElementById('abstract-title').textContent = article.title || '摘要';
+    document.getElementById('abstract-body').textContent = article.abstract || '无摘要';
+    document.getElementById('abstract-translate').style.display = article.abstract ? 'block' : 'none';
+    document.getElementById('translate-text').textContent = '翻译中...';
+    document.getElementById('abstract-dialog').style.display = 'flex';
+
+    if (article.abstract) translateAbstract();
+}
+
+function closeAbstract() {
+    document.getElementById('abstract-dialog').style.display = 'none';
+    currentAbstractIndex = -1;
+}
+
+async function translateAbstract() {
+    const article = allArticles[currentAbstractIndex];
+    if (!article || !article.abstract) return;
+
+    try {
+        const response = await fetch('/api/translate?text=' + encodeURIComponent(article.abstract));
+        const data = await response.json();
+        document.getElementById('translate-text').textContent = data.translated || '翻译失败';
+    } catch (error) {
+        document.getElementById('translate-text').textContent = '翻译失败';
+    }
 }
