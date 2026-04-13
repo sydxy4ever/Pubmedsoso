@@ -1,0 +1,243 @@
+"""FastAPI routes for PubMed search API."""
+
+import asyncio
+import logging
+import uuid
+from datetime import datetime
+from io import BytesIO
+from pathlib import Path
+from typing import Optional
+
+from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import StreamingResponse
+
+from pubmedsoso.config import Config
+from pubmedsoso.core.detail import DetailFetcher
+from pubmedsoso.core.download import DownloadManager
+from pubmedsoso.core.export import Exporter
+from pubmedsoso.core.search import PubMedSearcher
+from pubmedsoso.db.database import Database
+from pubmedsoso.db.repository import ArticleRepository
+from pubmedsoso.models import Article, SearchParams
+from pubmedsoso.web.schemas import (
+    ArticleResponse,
+    HistoryItem,
+    SearchRequest,
+    TaskStatus,
+)
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter()
+
+_tasks: dict[str, TaskStatus] = {}
+_task_articles: dict[str, list[Article]] = {}
+_task_dbs: dict[str, Database] = {}
+
+
+def _run_search(task_id: str, request: SearchRequest, config: Config) -> None:
+    try:
+        _tasks[task_id].status = "running"
+        _tasks[task_id].message = "Searching PubMed..."
+
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        db_path = config.db_dir / f"pubmed_{timestamp}.db"
+        db = Database(db_path)
+        db.init_schema()
+        _task_dbs[task_id] = db
+        repo = ArticleRepository(db)
+
+        searcher = PubMedSearcher(config)
+        params = SearchParams(
+            keyword=request.keyword,
+            page_num=request.page_num,
+            page_size=config.page_size,
+        )
+        result = searcher.search(params)
+
+        _tasks[task_id].progress = 0.3
+        _tasks[task_id].result_count = len(result.articles)
+        _tasks[task_id].message = f"Found {result.total_count} articles"
+
+        if not result.articles:
+            _tasks[task_id].status = "completed"
+            _tasks[task_id].message = "No articles found"
+            return
+
+        _tasks[task_id].message = "Saving to database..."
+        repo.insert_batch(result.articles)
+        _tasks[task_id].progress = 0.4
+
+        _tasks[task_id].message = "Fetching article details..."
+        fetcher = DetailFetcher(config)
+        fetcher.fetch_details(result.articles)
+        for article in result.articles:
+            if article.pmid:
+                repo.update_detail(article)
+        _tasks[task_id].progress = 0.6
+
+        if not request.no_download and request.download_num > 0:
+            _tasks[task_id].message = f"Downloading {request.download_num} PDFs..."
+            downloader = DownloadManager(config)
+            downloaded = downloader.download_batch(result.articles, limit=request.download_num)
+            _tasks[task_id].download_count = len(downloaded)
+            for path in downloaded:
+                logger.info("Downloaded: %s", path)
+        _tasks[task_id].progress = 0.9
+
+        _task_articles[task_id] = result.articles
+        _tasks[task_id].status = "completed"
+        _tasks[task_id].message = f"Completed: {len(result.articles)} articles"
+        _tasks[task_id].progress = 1.0
+
+    except Exception as e:
+        logger.exception("Search task failed")
+        _tasks[task_id].status = "failed"
+        _tasks[task_id].message = str(e)
+
+
+@router.post("/search")
+async def start_search(request: SearchRequest) -> dict[str, str]:
+    task_id = str(uuid.uuid4())[:8]
+    _tasks[task_id] = TaskStatus(
+        task_id=task_id,
+        status="pending",
+        message="Task created",
+    )
+
+    config = Config.from_env()
+    config.ensure_dirs()
+
+    loop = asyncio.get_event_loop()
+    loop.run_in_executor(None, _run_search, task_id, request, config)
+
+    return {"task_id": task_id}
+
+
+@router.get("/tasks/{task_id}")
+async def get_task_status(task_id: str) -> TaskStatus:
+    if task_id not in _tasks:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return _tasks[task_id]
+
+
+@router.get("/articles")
+async def get_articles(
+    task_id: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+) -> dict:
+    if task_id and task_id in _task_articles:
+        articles = _task_articles[task_id]
+    elif task_id and task_id in _task_dbs:
+        repo = ArticleRepository(_task_dbs[task_id])
+        articles = repo.get_all_articles()
+    else:
+        config = Config.from_env()
+        db_files = list(config.db_dir.glob("pubmed_*.db"))
+        if not db_files:
+            return {"articles": [], "total": 0, "page": page, "page_size": page_size}
+        latest_db = max(db_files, key=lambda p: p.stat().st_mtime)
+        db = Database(latest_db)
+        repo = ArticleRepository(db)
+        articles = repo.get_all_articles()
+
+    start = (page - 1) * page_size
+    end = start + page_size
+    paginated = articles[start:end]
+
+    return {
+        "articles": [
+            ArticleResponse(
+                id=a.id,
+                title=a.title,
+                authors=a.authors,
+                journal=a.journal,
+                doi=a.doi,
+                pmid=a.pmid,
+                pmcid=a.pmcid,
+                abstract=a.abstract,
+                keywords=a.keywords,
+                affiliations=a.affiliations,
+                free_status=int(a.free_status),
+                is_review=a.is_review,
+                save_path=a.save_path,
+            )
+            for a in paginated
+        ],
+        "total": len(articles),
+        "page": page,
+        "page_size": page_size,
+    }
+
+
+@router.get("/export")
+async def export_results(
+    task_id: Optional[str] = Query(None),
+    format: str = Query("xlsx", pattern="^(xlsx|csv)$"),
+):
+    if task_id and task_id in _task_articles:
+        articles = _task_articles[task_id]
+    elif task_id and task_id in _task_dbs:
+        repo = ArticleRepository(_task_dbs[task_id])
+        articles = repo.get_all_articles()
+    else:
+        config = Config.from_env()
+        db_files = list(config.db_dir.glob("pubmed_*.db"))
+        if not db_files:
+            raise HTTPException(status_code=404, detail="No articles found")
+        latest_db = max(db_files, key=lambda p: p.stat().st_mtime)
+        db = Database(latest_db)
+        repo = ArticleRepository(db)
+        articles = repo.get_all_articles()
+
+    if not articles:
+        raise HTTPException(status_code=404, detail="No articles to export")
+
+    buffer = BytesIO()
+    temp_path = Path("/tmp/export_temp")
+
+    if format == "xlsx":
+        Exporter.to_xlsx(articles, temp_path)
+        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        filename = f"pubmed_export_{datetime.now().strftime('%Y%m%d%H%M%S')}.xlsx"
+    else:
+        Exporter.to_csv(articles, temp_path)
+        media_type = "text/csv"
+        filename = f"pubmed_export_{datetime.now().strftime('%Y%m%d%H%M%S')}.csv"
+
+    with open(temp_path, "rb") as f:
+        buffer.write(f.read())
+    buffer.seek(0)
+    temp_path.unlink()
+
+    return StreamingResponse(
+        buffer,
+        media_type=media_type,
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+@router.get("/history")
+async def get_history() -> list[HistoryItem]:
+    config = Config.from_env()
+    db_files = list(config.db_dir.glob("pubmed_*.db"))
+
+    history: list[HistoryItem] = []
+    for db_file in sorted(db_files, reverse=True):
+        timestamp = db_file.stem.replace("pubmed_", "")
+        db = Database(db_file)
+        repo = ArticleRepository(db)
+        articles = repo.get_all_articles()
+
+        created_at = datetime.fromtimestamp(db_file.stat().st_mtime).isoformat()
+
+        history.append(
+            HistoryItem(
+                task_id=timestamp,
+                article_count=len(articles),
+                created_at=created_at,
+            )
+        )
+
+    return history
