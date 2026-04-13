@@ -49,12 +49,6 @@ def _cleanup_old_tasks() -> None:
     for tid in expired:
         _tasks.pop(tid, None)
         _task_articles.pop(tid, None)
-        db = _task_dbs.pop(tid, None)
-        if db is not None:
-            try:
-                db.close()
-            except Exception:
-                pass
         _task_timestamps.pop(tid, None)
 
 
@@ -95,8 +89,6 @@ def _run_search_full(task_id: str, keyword: str, config: Config) -> None:
         _update_task(task_id, status="running", message="Searching PubMed...")
 
         db = _get_db(config)
-        with _state_lock:
-            _task_dbs[task_id] = db
 
         search_id = db.create_search(keyword, datetime.now().isoformat())
         repo = ArticleRepository(db)
@@ -249,22 +241,16 @@ async def get_articles(
 @router.get("/export")
 async def export_results(
     task_id: Optional[str] = Query(None),
+    search_id: Optional[int] = Query(None),
     export_format: str = Query("xlsx", pattern="^(xlsx|csv)$"),
 ):
     if task_id and task_id in _task_articles:
         articles = _task_articles[task_id]
-    elif task_id and task_id in _task_dbs:
-        repo = ArticleRepository(_task_dbs[task_id])
-        articles = repo.get_all_articles()
     else:
         config = Config.from_env()
-        db_files = list(config.db_dir.glob("pubmed_*.db"))
-        if not db_files:
-            raise HTTPException(status_code=404, detail="No articles found")
-        latest_db = max(db_files, key=lambda p: p.stat().st_mtime)
-        db = Database(latest_db)
+        db = _get_db(config)
         repo = ArticleRepository(db)
-        articles = repo.get_all_articles()
+        articles = repo.get_all_articles(search_id=search_id)
 
     if not articles:
         raise HTTPException(status_code=404, detail="No articles to export")
