@@ -5,12 +5,14 @@ from typing import Optional
 from pydantic import BaseModel
 
 
-
 class SearchRequest(BaseModel):
     keyword: str
     page_num: int = 10
+
+
+class DownloadRequest(BaseModel):
+    task_id: str
     download_num: int = 10
-    no_download: bool = False
 
 
 class TaskStatus(BaseModel):

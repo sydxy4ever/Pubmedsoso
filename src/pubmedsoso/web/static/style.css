@@ -122,6 +122,20 @@ button:disabled {
     background: #5a6268;
 }
 
+.btn-primary {
+    background: #28a745;
+    color: white;
+}
+
+.btn-primary:hover {
+    background: #218838;
+}
+
+.badge-warning {
+    background: #fff3cd;
+    color: #856404;
+}
+
 .progress-section {
     background: #e8f4fd;
 }
@@ -154,9 +168,23 @@ button:disabled {
 }
 
 .actions {
-    margin-bottom: 15px;
     display: flex;
     gap: 10px;
+}
+
+.results-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #eee;
+}
+
+.results-header h2 {
+    margin-bottom: 0;
+    padding-bottom: 0;
+    border-bottom: none;
 }
 
 .table-container {

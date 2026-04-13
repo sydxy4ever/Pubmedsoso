@@ -1,50 +1,37 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pubmedsoso - PubMed Literature Crawler</title>
+    <title>Pubmedsoso</title>
     <link rel="stylesheet" href="/style.css">
 </head>
 <body>
     <div class="container">
         <header>
             <h1>Pubmedsoso</h1>
-            <p>PubMed Literature Crawler</p>
+            <p>PubMed 文献爬取工具</p>
         </header>
 
         <section class="search-section">
-            <h2>Search</h2>
             <form id="search-form">
                 <div class="form-group">
-                    <label for="keyword">Keyword:</label>
-                    <input type="text" id="keyword" name="keyword" required placeholder="Enter search keyword...">
+                    <input type="text" id="keyword" name="keyword" required placeholder="输入搜索关键词..." autofocus>
                 </div>
                 <div class="form-row">
                     <div class="form-group">
-                        <label for="page-num">Pages:</label>
+                        <label for="page-num">检索页数</label>
                         <input type="number" id="page-num" name="page_num" value="10" min="1" max="100">
                     </div>
-                    <div class="form-group">
-                        <label for="download-num">PDF Downloads:</label>
-                        <input type="number" id="download-num" name="download_num" value="10" min="0" max="100">
-                    </div>
-                    <div class="form-group checkbox">
-                        <label>
-                            <input type="checkbox" id="no-download" name="no_download">
-                            Skip Downloads
-                        </label>
-                    </div>
+                    <button type="submit" id="search-btn">搜索</button>
                 </div>
-                <button type="submit" id="search-btn">Search</button>
             </form>
         </section>
 
         <section class="progress-section" id="progress-section" style="display: none;">
-            <h2>Progress</h2>
             <div class="progress-info">
-                <span id="progress-status">Pending...</span>
-                <span id="progress-percent">0%</span>
+                <span id="progress-status"></span>
+                <span id="progress-percent"></span>
             </div>
             <div class="progress-bar">
                 <div class="progress-fill" id="progress-fill"></div>
@@ -52,22 +39,25 @@
             <p id="progress-message"></p>
         </section>
 
-        <section class="results-section">
-            <h2>Results <span id="result-count"></span></h2>
-            <div class="actions">
-                <button id="export-xlsx" class="btn-secondary">Export XLSX</button>
-                <button id="export-csv" class="btn-secondary">Export CSV</button>
+        <section class="results-section" id="results-section" style="display: none;">
+            <div class="results-header">
+                <h2>搜索结果 <span id="result-count"></span></h2>
+                <div class="actions">
+                    <button id="export-xlsx" class="btn-secondary">导出 Excel</button>
+                    <button id="export-csv" class="btn-secondary">导出 CSV</button>
+                    <button id="download-pdf" class="btn-primary">下载免费 PDF</button>
+                </div>
             </div>
             <div class="table-container">
                 <table id="results-table">
                     <thead>
                         <tr>
                             <th>#</th>
-                            <th>Title</th>
-                            <th>Authors</th>
-                            <th>Journal</th>
+                            <th>标题</th>
+                            <th>作者</th>
+                            <th>期刊</th>
                             <th>PMID</th>
-                            <th>Free</th>
+                            <th>免费</th>
                             <th>Review</th>
                         </tr>
                     </thead>
@@ -78,13 +68,13 @@
         </section>
 
         <section class="history-section">
-            <h2>History</h2>
+            <h2>历史记录</h2>
             <table id="history-table">
                 <thead>
                     <tr>
-                        <th>Task ID</th>
-                        <th>Articles</th>
-                        <th>Date</th>
+                        <th>任务 ID</th>
+                        <th>文献数</th>
+                        <th>时间</th>
                     </tr>
                 </thead>
                 <tbody id="history-body"></tbody>

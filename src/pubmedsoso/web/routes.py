@@ -23,6 +23,7 @@ from pubmedsoso.db.repository import ArticleRepository
 from pubmedsoso.models import Article, SearchParams
 from pubmedsoso.web.schemas import (
     ArticleResponse,
+    DownloadRequest,
     HistoryItem,
     SearchRequest,
     TaskStatus,
@@ -86,7 +87,7 @@ def _run_search(task_id: str, request: SearchRequest, config: Config) -> None:
             task_id,
             progress=0.3,
             result_count=len(result.articles),
-            message=f"Found {result.total_count} articles",
+            message=f"Found {result.total_count} articles, fetching details...",
         )
 
         if not result.articles:
@@ -103,28 +104,59 @@ def _run_search(task_id: str, request: SearchRequest, config: Config) -> None:
         for article in result.articles:
             if article.pmid:
                 repo.update_detail(article)
-        _update_task(task_id, progress=0.6)
-
-        if not request.no_download and request.download_num > 0:
-            _update_task(task_id, message=f"Downloading {request.download_num} PDFs...")
-            downloader = DownloadManager(config)
-            downloaded = downloader.download_batch(result.articles, limit=request.download_num)
-            _update_task(task_id, download_count=len(downloaded))
-            for path in downloaded:
-                logger.info("Downloaded: %s", path)
-        _update_task(task_id, progress=0.9)
 
         with _state_lock:
             _task_articles[task_id] = result.articles
         _update_task(
             task_id,
             status="completed",
-            message=f"Completed: {len(result.articles)} articles",
+            message=f"Found {result.total_count} results, {len(result.articles)} articles fetched",
             progress=1.0,
         )
 
     except Exception as e:
         logger.exception("Search task failed")
+        _update_task(task_id, status="failed", message=str(e))
+
+
+def _run_download(task_id: str, download_num: int, config: Config) -> None:
+    try:
+        _update_task(task_id, status="downloading", message="Downloading PDFs...")
+
+        articles = _task_articles.get(task_id, [])
+        if not articles:
+            db = _task_dbs.get(task_id)
+            if db:
+                repo = ArticleRepository(db)
+                articles = repo.get_all_articles()
+
+        if not articles:
+            _update_task(task_id, status="failed", message="No articles found for download")
+            return
+
+        downloader = DownloadManager(config)
+        results = downloader.download_batch(articles, limit=download_num)
+        downloaded = sum(1 for _, p in results if p is not None)
+
+        db = _task_dbs.get(task_id)
+        if db:
+            repo = ArticleRepository(db)
+            for article, path in results:
+                if path and article.pmcid:
+                    repo.update_save_path(article.pmcid, str(path))
+            with _state_lock:
+                _task_articles[task_id] = repo.get_all_articles()
+
+        _update_task(
+            task_id,
+            status="completed",
+            message=f"Downloaded {downloaded} PDFs",
+            download_count=downloaded,
+            progress=1.0,
+        )
+
+    except Exception as e:
+        logger.exception("Download task failed")
         _update_task(task_id, status="failed", message=str(e))
 
 
@@ -146,6 +178,30 @@ async def start_search(request: SearchRequest) -> dict[str, str]:
 
     loop = asyncio.get_running_loop()
     loop.run_in_executor(None, _run_search, task_id, request, config)
+
+    return {"task_id": task_id}
+
+
+@router.post("/download")
+async def start_download(request: DownloadRequest) -> dict[str, str]:
+    task_id = request.task_id
+    if task_id not in _tasks:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if _tasks[task_id].status not in ("completed", "failed"):
+        raise HTTPException(status_code=400, detail="Task is still running")
+
+    with _state_lock:
+        _tasks[task_id] = TaskStatus(
+            task_id=task_id,
+            status="pending",
+            message="Download starting...",
+        )
+
+    config = Config.from_env()
+    config.ensure_dirs()
+
+    loop = asyncio.get_running_loop()
+    loop.run_in_executor(None, _run_download, task_id, request.download_num, config)
 
     return {"task_id": task_id}
 
