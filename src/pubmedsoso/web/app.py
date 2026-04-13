@@ -23,7 +23,7 @@ def create_app() -> FastAPI:
 
     static_dir = Path(__file__).parent / "static"
     if static_dir.exists():
-        app.mount("/static", StaticFiles(directory=str(static_dir), html=True), name="static")
+        app.mount("/", StaticFiles(directory=str(static_dir), html=True), name="static")
 
     return app
 
