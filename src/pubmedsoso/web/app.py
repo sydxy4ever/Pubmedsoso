@@ -15,15 +15,15 @@ def create_app() -> FastAPI:
         version="2.0.0",
     )
 
+    @app.get("/health")
+    async def health() -> dict[str, str]:
+        return {"status": "ok"}
+
     app.include_router(router, prefix="/api")
 
     static_dir = Path(__file__).parent / "static"
     if static_dir.exists():
-        app.mount("/", StaticFiles(directory=str(static_dir), html=True), name="static")
-
-    @app.get("/health")
-    async def health() -> dict[str, str]:
-        return {"status": "ok"}
+        app.mount("/static", StaticFiles(directory=str(static_dir), html=True), name="static")
 
     return app
 

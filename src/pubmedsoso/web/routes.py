@@ -2,8 +2,10 @@
 
 import asyncio
 import logging
+import tempfile
+import threading
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 from typing import Optional
@@ -33,18 +35,43 @@ router = APIRouter()
 _tasks: dict[str, TaskStatus] = {}
 _task_articles: dict[str, list[Article]] = {}
 _task_dbs: dict[str, Database] = {}
+_task_timestamps: dict[str, datetime] = {}
+_state_lock = threading.Lock()
+
+_MAX_TASK_AGE = timedelta(hours=1)
+
+
+def _cleanup_old_tasks() -> None:
+    now = datetime.now()
+    expired = [tid for tid, ts in _task_timestamps.items() if now - ts > _MAX_TASK_AGE]
+    for tid in expired:
+        _tasks.pop(tid, None)
+        _task_articles.pop(tid, None)
+        db = _task_dbs.pop(tid, None)
+        if db is not None:
+            try:
+                db.close()
+            except Exception:
+                pass
+        _task_timestamps.pop(tid, None)
+
+
+def _update_task(task_id: str, **kwargs: object) -> None:
+    with _state_lock:
+        for key, value in kwargs.items():
+            setattr(_tasks[task_id], key, value)
 
 
 def _run_search(task_id: str, request: SearchRequest, config: Config) -> None:
     try:
-        _tasks[task_id].status = "running"
-        _tasks[task_id].message = "Searching PubMed..."
+        _update_task(task_id, status="running", message="Searching PubMed...")
 
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
         db_path = config.db_dir / f"pubmed_{timestamp}.db"
         db = Database(db_path)
         db.init_schema()
-        _task_dbs[task_id] = db
+        with _state_lock:
+            _task_dbs[task_id] = db
         repo = ArticleRepository(db)
 
         searcher = PubMedSearcher(config)
@@ -55,60 +82,69 @@ def _run_search(task_id: str, request: SearchRequest, config: Config) -> None:
         )
         result = searcher.search(params)
 
-        _tasks[task_id].progress = 0.3
-        _tasks[task_id].result_count = len(result.articles)
-        _tasks[task_id].message = f"Found {result.total_count} articles"
+        _update_task(
+            task_id,
+            progress=0.3,
+            result_count=len(result.articles),
+            message=f"Found {result.total_count} articles",
+        )
 
         if not result.articles:
-            _tasks[task_id].status = "completed"
-            _tasks[task_id].message = "No articles found"
+            _update_task(task_id, status="completed", message="No articles found")
             return
 
-        _tasks[task_id].message = "Saving to database..."
+        _update_task(task_id, message="Saving to database...")
         repo.insert_batch(result.articles)
-        _tasks[task_id].progress = 0.4
+        _update_task(task_id, progress=0.4)
 
-        _tasks[task_id].message = "Fetching article details..."
+        _update_task(task_id, message="Fetching article details...")
         fetcher = DetailFetcher(config)
         fetcher.fetch_details(result.articles)
         for article in result.articles:
             if article.pmid:
                 repo.update_detail(article)
-        _tasks[task_id].progress = 0.6
+        _update_task(task_id, progress=0.6)
 
         if not request.no_download and request.download_num > 0:
-            _tasks[task_id].message = f"Downloading {request.download_num} PDFs..."
+            _update_task(task_id, message=f"Downloading {request.download_num} PDFs...")
             downloader = DownloadManager(config)
             downloaded = downloader.download_batch(result.articles, limit=request.download_num)
-            _tasks[task_id].download_count = len(downloaded)
+            _update_task(task_id, download_count=len(downloaded))
             for path in downloaded:
                 logger.info("Downloaded: %s", path)
-        _tasks[task_id].progress = 0.9
+        _update_task(task_id, progress=0.9)
 
-        _task_articles[task_id] = result.articles
-        _tasks[task_id].status = "completed"
-        _tasks[task_id].message = f"Completed: {len(result.articles)} articles"
-        _tasks[task_id].progress = 1.0
+        with _state_lock:
+            _task_articles[task_id] = result.articles
+        _update_task(
+            task_id,
+            status="completed",
+            message=f"Completed: {len(result.articles)} articles",
+            progress=1.0,
+        )
 
     except Exception as e:
         logger.exception("Search task failed")
-        _tasks[task_id].status = "failed"
-        _tasks[task_id].message = str(e)
+        _update_task(task_id, status="failed", message=str(e))
 
 
 @router.post("/search")
 async def start_search(request: SearchRequest) -> dict[str, str]:
     task_id = str(uuid.uuid4())[:8]
-    _tasks[task_id] = TaskStatus(
-        task_id=task_id,
-        status="pending",
-        message="Task created",
-    )
+    with _state_lock:
+        _tasks[task_id] = TaskStatus(
+            task_id=task_id,
+            status="pending",
+            message="Task created",
+        )
+        _task_timestamps[task_id] = datetime.now()
 
     config = Config.from_env()
     config.ensure_dirs()
 
-    loop = asyncio.get_event_loop()
+    _cleanup_old_tasks()
+
+    loop = asyncio.get_running_loop()
     loop.run_in_executor(None, _run_search, task_id, request, config)
 
     return {"task_id": task_id}
@@ -174,7 +210,7 @@ async def get_articles(
 @router.get("/export")
 async def export_results(
     task_id: Optional[str] = Query(None),
-    format: str = Query("xlsx", pattern="^(xlsx|csv)$"),
+    export_format: str = Query("xlsx", pattern="^(xlsx|csv)$"),
 ):
     if task_id and task_id in _task_articles:
         articles = _task_articles[task_id]
@@ -195,9 +231,11 @@ async def export_results(
         raise HTTPException(status_code=404, detail="No articles to export")
 
     buffer = BytesIO()
-    temp_path = Path("/tmp/export_temp")
+    suffix = ".xlsx" if export_format == "xlsx" else ".csv"
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        temp_path = Path(tmp.name)
 
-    if format == "xlsx":
+    if export_format == "xlsx":
         Exporter.to_xlsx(articles, temp_path)
         media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         filename = f"pubmed_export_{datetime.now().strftime('%Y%m%d%H%M%S')}.xlsx"
