@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pubmedsoso"
+version = "2.0.0"
+description = "PubMed literature crawler - search, extract, download, export"
+requires-python = ">=3.10"
+dependencies = [
+    "requests>=2.31",
+    "beautifulsoup4>=4.12",
+    "openpyxl>=3.1",
+    "typer>=0.9",
+    "fastapi>=0.104",
+    "uvicorn>=0.24",
+    "pydantic>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov",
+    "httpx",
+    "ruff",
+]
+
+[project.scripts]
+pubmedsoso = "pubmedsoso.main:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
