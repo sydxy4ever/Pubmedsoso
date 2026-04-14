@@ -128,6 +128,7 @@ def _run_search_full(task_id: str, keyword: str, config: Config) -> None:
             status="completed",
             message=f"Found {result.total_count} results, {len(result.articles)} articles fetched",
             progress=1.0,
+            search_id=search_id,
         )
 
     except Exception as e:
@@ -159,7 +160,7 @@ async def start_search(request: SearchRequest) -> dict:
 
 
 @router.post("/search/confirm")
-async def confirm_search(request: SearchConfirmRequest) -> dict[str, str]:
+async def confirm_search(request: SearchConfirmRequest) -> dict[str, object]:
     task_id = request.task_id
     if task_id not in _tasks:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -180,7 +181,7 @@ async def confirm_search(request: SearchConfirmRequest) -> dict[str, str]:
     loop = asyncio.get_running_loop()
     loop.run_in_executor(None, _run_search_full, task_id, keyword, config)
 
-    return {"task_id": task_id}
+    return {"task_id": task_id, "search_id": None}
 
 
 @router.get("/tasks/{task_id}")
@@ -292,7 +293,8 @@ async def get_history() -> list[HistoryItem]:
         articles = repo.get_all_articles(search_id=search["id"])
         history.append(
             HistoryItem(
-                task_id=search["keyword"],
+                search_id=search["id"],
+                keyword=search["keyword"],
                 article_count=len(articles),
                 created_at=search["created_at"],
             )

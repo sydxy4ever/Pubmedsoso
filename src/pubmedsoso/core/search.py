@@ -2,7 +2,6 @@
 
 import logging
 import time
-import urllib.parse
 from xml.etree import ElementTree as ET
 
 import requests

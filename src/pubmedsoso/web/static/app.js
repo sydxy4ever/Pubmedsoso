@@ -122,7 +122,7 @@ function pollTaskStatus(onDone = null) {
                 if (task.status === 'completed') {
                     document.getElementById('progress-section').style.display = 'none';
                     document.getElementById('results-section').style.display = 'block';
-                    loadArticles(currentTaskId);
+                    loadArticles(null, task.search_id);
                     loadHistory();
                 }
                 if (onDone) onDone();
@@ -179,9 +179,10 @@ function updateProgress(task) {
     document.getElementById('progress-message').textContent = task.message;
 }
 
-async function loadArticles(taskId = null) {
+async function loadArticles(taskId = null, searchId = null) {
     let url = '/api/articles?page=1&page_size=99999';
     if (taskId) url += `&task_id=${taskId}`;
+    if (searchId) url += `&search_id=${searchId}`;
 
     try {
         const response = await fetch(url);
@@ -317,19 +318,43 @@ async function loadHistory() {
             const row = document.createElement('tr');
             row.style.cursor = 'pointer';
             row.innerHTML = `
-                <td>${item.task_id}</td>
+                <td>${item.keyword}</td>
                 <td>${item.article_count}</td>
                 <td>${formatDate(item.created_at)}</td>
             `;
             row.addEventListener('click', () => {
-                currentTaskId = item.task_id;
-                document.getElementById('results-section').style.display = 'block';
-                loadArticles(item.task_id);
+                console.log(`History item clicked: search_id=${item.search_id}, keyword=${item.keyword}`);
+                loadArticlesBySearchId(item.search_id);
             });
             tbody.appendChild(row);
         });
     } catch (error) {
         console.error('Failed to load history:', error);
+    }
+}
+
+async function loadArticlesBySearchId(searchId) {
+    try {
+        console.log(`loadArticlesBySearchId called with searchId: ${searchId}`);
+        currentTaskId = null;
+        const response = await fetch(`/api/articles?search_id=${searchId}&page=1&page_size=99999`);
+        const data = await response.json();
+        console.log(`loadArticlesBySearchId response: total=${data.total}, articles=${data.articles.length}`);
+
+        allArticles = data.articles;
+        currentPage = 1;
+        sortField = null;
+        sortAsc = true;
+        document.querySelectorAll('th.sortable').forEach(th => {
+            th.textContent = th.textContent.replace(/ [↕↑↓]$/, '') + ' ↕';
+        });
+
+        document.getElementById('result-count').textContent =
+            `(${allArticles.length} 篇)`;
+        document.getElementById('results-section').style.display = 'block';
+        renderPage();
+    } catch (error) {
+        console.error('Failed to load articles:', error);
     }
 }
 

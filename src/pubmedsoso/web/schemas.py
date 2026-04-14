@@ -19,6 +19,7 @@ class TaskStatus(BaseModel):
     progress: float = 0.0
     result_count: int = 0
     message: str = ""
+    search_id: Optional[int] = None
 
 
 class ArticleResponse(BaseModel):
@@ -45,6 +46,7 @@ class ArticleResponse(BaseModel):
 
 
 class HistoryItem(BaseModel):
-    task_id: str
+    search_id: int
+    keyword: str
     article_count: int
     created_at: str
